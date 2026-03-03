@@ -1,0 +1,16 @@
+[1/9] Performing build step for 'bootloader'
+[1/1] cmd.exe /C "cd /D D:\Espressif\frameworks\relay_test\build\bootloader\esp-idf\esptool_py && D:\Espressif\python_env\idf5.3_py3.11_env\Scripts\python.exe D:/Espressif/frameworks/esp-idf-v5.3.1/components/partition_table/check_sizes.py --offset 0x8000 bootloader 0x1000 D:/Espressif/frameworks/relay_test/build/bootloader/bootloader.bin"
+Bootloader binary size 0x68d0 bytes. 0x730 bytes (6%) free.
+[2/7] Building C object esp-idf/app_mqtt/CMakeFiles/__idf_app_mqtt.dir/mqtt.c.obj
+[3/7] Linking C static library esp-idf\app_mqtt\libapp_mqtt.a
+[4/7] Generating ld/sections.ld
+[5/7] Linking CXX executable relay_test.elf
+[6/7] Generating binary image from built executable
+esptool.py v4.8.dev5
+Creating esp32 image...
+Merged 2 ELF sections
+Successfully created esp32 image.
+Generated D:/Espressif/frameworks/relay_test/build/relay_test.bin
+[7/7] cmd.exe /C "cd /D D:\Espressif\frameworks\relay_test\build\esp-idf\esptool_py && D:\Espressif\python_env\idf5.3_py3.11_env\Scripts\python.exe D:/Espressif/frameworks/esp-idf-v5.3.1/components/partition_table/check_sizes.py --offset 0x8000 partition --type app D:/Espressif/frameworks/relay_test/build/partition_table/partition-table.bin D:/Espressif/frameworks/relay_test/build/relay_test.bin"
+relay_test.bin binary size 0x1de360 bytes. Smallest app partition is 0x1e0000 bytes. 0x1ca0 bytes (0%) free.
+Warning: The smallest app partition is nearly full (0% free space left)!

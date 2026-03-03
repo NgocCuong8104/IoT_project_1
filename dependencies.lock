@@ -1,0 +1,32 @@
+dependencies:
+  espressif/esp-modbus:
+    component_hash: f8d6417c4eaf86ba927d3922dff13bd20b15ff8356586062505ee56e713848c6
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 2.1.1
+  espressif/esp_modem:
+    component_hash: 40af7f39c6c8c0c85c98014721fca8d9d2186f18f70645c66b94548192cf1e03
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.1'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.4.2
+  idf:
+    source:
+      type: idf
+    version: 5.3.1
+direct_dependencies:
+- espressif/esp-modbus
+- espressif/esp_modem
+- idf
+manifest_hash: 3d1f5805496dbd84137752fe822d2f5071d45be13d446ab1e4d01e56c0ad45b3
+target: esp32
+version: 2.0.0
