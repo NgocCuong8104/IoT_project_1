@@ -7,7 +7,7 @@
 #define BT4_PIN  23
 #define BT5_PIN  25
 
-#define LONG_PRESS_MS 6000 
+#define LONG_PRESS_MS 4000 
 
 void button_init(void);
 

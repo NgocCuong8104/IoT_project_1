@@ -1,10 +1,7 @@
-// #include <stdint.h>
-// #include <stdbool.h>
 #include "button.h"
 #include "relay.h" 
+#include "led_status.h"
 #include "wifi.h"
-#include "pppos.h"
-#include "wifi.h"  
 #include "pppos.h"
 #include "driver/gpio.h"
 #include "nvs_flash.h"
@@ -14,17 +11,16 @@
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "mqtt.h"
-// #include "freertos/queue.h"
 
 static const char *TAG = "BUTTON";
   
-#define WARNING_MS    4000     
+#define WARNING_MS    2000     
 #define DEBOUNCE_MS   50      
-// #define CLICK_COOLDOWN_MS  300
   
 extern int app_mode;
 
 extern void wifi_start_smartconfig(void);
+extern void wifi_reset_credentials_and_provision(void);
 extern void pppos_start_connect(void);
 void save_mode_and_restart(int32_t mode);
 
@@ -42,53 +38,37 @@ typedef struct {
 } Button_t;
 
 static Button_t buttons[5] = {
-    {BT1_PIN, 1, wifi_start_smartconfig, false, false, false, 0, 0}, 
-    {BT2_PIN, 2, pppos_start_connect,     false, false, false, 0, 0}, 
-    {BT3_PIN, 3, NULL,                   false, false, false, 0, 0}, 
-    {BT4_PIN, 4, NULL,                   false, false, false, 0, 0},
-    {BT5_PIN, 5, NULL,                   false, false, false, 0, 0}
+    {BT1_PIN, 1, wifi_start_smartconfig,         false, false, false, 0, 0}, 
+    {BT2_PIN, 2, pppos_start_connect,            false, false, false, 0, 0}, 
+    {BT3_PIN, 3, NULL,                           false, false, false, 0, 0}, 
+    {BT4_PIN, 4, NULL,                           false, false, false, 0, 0},
+    {BT5_PIN, 5, wifi_reset_credentials_and_provision, false, false, false, 0, 0}
 };
 
-static void clear_wifi_credentials(void) {
-    wifi_prov_mgr_reset_provisioning();
-    
-    nvs_handle_t nvs_handle;
-    if (nvs_open("nvs.net80211", NVS_READWRITE, &nvs_handle) == ESP_OK) {
-        nvs_erase_all(nvs_handle);
-        nvs_commit(nvs_handle);
-        nvs_close(nvs_handle);
-    }
-    ESP_LOGW(TAG, "WiFi credentials cleared!");
-}
-
+// Hàm xử lý nhấn giữ nút
 void trigger_long_press_action(int btn_index) {
-    int relay_id = buttons[btn_index].relay_idx;
-    
-    if (btn_index == 0) ESP_LOGW(TAG, "(WIFI)!");
-    else if (btn_index == 1) ESP_LOGW(TAG, "(4G)!");
-
-    for (int k = 0; k < 3; k++) {
-        relay_on(relay_id);
-        vTaskDelay(pdMS_TO_TICKS(100));
-        relay_off(relay_id);
-        vTaskDelay(pdMS_TO_TICKS(100)); 
-    }
-
-    relay_off(relay_id); 
-
     if (btn_index == 0) {
-        clear_wifi_credentials(); 
-        save_mode_and_restart(1);
+        ESP_LOGW(TAG, "Mode: WIFI");
+        led_status_blink(3, 100, 100);
+        if (buttons[btn_index].lp_cb != NULL) {
+            buttons[btn_index].lp_cb(); 
+        }
     } 
     else if (btn_index == 1) {
+        ESP_LOGW(TAG, "Mode: 4G");
+        led_status_blink(3, 100, 100);
         save_mode_and_restart(2);
     }
-
-    if (buttons[btn_index].lp_cb != NULL) {
-        buttons[btn_index].lp_cb();
+    else if (btn_index == 4) {
+        ESP_LOGW(TAG, "Mode: RESET WIFI");
+        led_status_blink(3, 100, 100);
+        if (buttons[btn_index].lp_cb != NULL) {
+            buttons[btn_index].lp_cb();
+        }
     }
 }
 
+// Task chính để theo dõi trạng thái nút nhấn
 void button_task(void *arg) {
     while (1) {
         int64_t now = esp_timer_get_time() / 1000; 
@@ -116,8 +96,9 @@ void button_task(void *arg) {
                         int64_t duration = now - buttons[i].press_start_time;
 
                         if (buttons[i].lp_cb != NULL && !buttons[i].warning_printed && duration > WARNING_MS && duration < LONG_PRESS_MS) {
-                            if (i == 0) ESP_LOGI(TAG, "Giu them 2s cai Wifi...");
-                            if (i == 1) ESP_LOGI(TAG, "Giu them 2s bat 4G...");
+                            if (i == 0) ESP_LOGI(TAG, "Giu them 2s de cai Wifi...");
+                            if (i == 1) ESP_LOGI(TAG, "Giu them 2s nua de bat 4G...");
+                            if (i == 4) ESP_LOGI(TAG, "Giu them 2s nua de reset WiFi va provision...");
                             buttons[i].warning_printed = true;
                         }
 
@@ -134,20 +115,10 @@ void button_task(void *arg) {
                     int64_t duration = now - buttons[i].press_start_time;
 
                     if (!buttons[i].long_press_handled && duration > DEBOUNCE_MS) {
-                        // if (now - buttons[i].last_click_time > CLICK_COOLDOWN_MS) {
                             buttons[i].last_click_time = now;
                             relay_toggle(buttons[i].relay_idx);
                             int new_state = relay_get_status(buttons[i].relay_idx);
-                            // if (relay_queue != NULL) {
-                            //     relay_event_t evt;
-                            //     evt.relay_idx = buttons[i].relay_idx;
-                            //     evt.new_state = new_state;
-                            //     xQueueSend(relay_queue, &evt, 0);
-                            // }
-                            // relay_commit_nvs(buttons[i].relay_idx, new_state);
-
                             mqtt_send_state(buttons[i].relay_idx, new_state);
-                        // }
                     }
                 }
             }
@@ -170,5 +141,5 @@ void button_init(void) {
     gpio_config(&io_conf);
 
     xTaskCreate(button_task, "btn_task", 8192, NULL, 5, NULL);
-    ESP_LOGI(TAG, "Button Service Started (5 Buttons)");
+    ESP_LOGI(TAG, "nút nhấn đã được khởi tạo");
 }

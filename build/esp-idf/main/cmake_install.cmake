@@ -1,8 +1,8 @@
-# Install script for directory: D:/Espressif/frameworks/relay_test/main
+# Install script for directory: D:/Espressif/frameworks/IoT_V1/main
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
-  set(CMAKE_INSTALL_PREFIX "C:/Program Files (x86)/relay_test")
+  set(CMAKE_INSTALL_PREFIX "C:/Program Files (x86)/IoT_V1")
 endif()
 string(REGEX REPLACE "/$" "" CMAKE_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}")
 

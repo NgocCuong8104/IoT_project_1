@@ -16,8 +16,6 @@
 #include "lwip/err.h"
 #include "lwip/sys.h"
 
-// #define EXAMPLE_ESP_WIFI_SSID      "Croptex2024"
-// #define EXAMPLE_ESP_WIFI_PASS      "croptex2024"
 #define EXAMPLE_ESP_MAXIMUM_RETRY  10
 
 #if CONFIG_ESP_WPA3_SAE_PWE_HUNT_AND_PECK
@@ -53,13 +51,12 @@ extern EventGroupHandle_t s_wifi_event_group;
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
 
-extern int s_retry_num;
-
 void event_handler(void* arg, esp_event_base_t event_base,
                                 int32_t event_id, void* event_data);
 
 void wifi_init_sta(void);
 bool wifi_is_connected(void);
 void wifi_start_smartconfig(void);
+void wifi_reset_credentials_and_provision(void);
 
-#endif /* WIFI_H */
+#endif

@@ -7,14 +7,6 @@
 
 static uint8_t getValue[8] = {0x01,0x03,0x00,0x00,0x00,0x02,0x00,0x00};
 
-// static const char *TAG = "SHT35";
-
-// static void rs485_tx(SHT35 *dev, int en)
-// {
-//     gpio_set_level(dev->de_re_pin, en);
-// }
-
-/* Constructor */
 void SHT35_init(SHT35 *dev, uart_port_t uart, uint8_t addr)
 {
     dev->uart = uart;
@@ -42,6 +34,7 @@ void SHT35_setTimeout(SHT35 *dev, uint16_t timeOut)
 dataSHT35 SHT35_getData(SHT35 *dev)
 {
     dataSHT35 value = {0};
+    value.is_valid = 0;  // Mặc định: dữ liệu không hợp lệ
 
     uart_flush(dev->uart);
 
@@ -71,6 +64,7 @@ dataSHT35 SHT35_getData(SHT35 *dev)
                 value.temperatureC = temp / 10.0f;
                 value.temperatureF = value.temperatureC * 1.8f + 32;
                 value.humidity = ((rx[3] << 8) | rx[4]) / 10.0f;
+                value.is_valid = 1;  // Dữ liệu hợp lệ
             }
             break;
         }
@@ -87,4 +81,30 @@ float SHT35_readTemperature(SHT35 *dev, int isCelsius)
 float SHT35_readHumidity(SHT35 *dev)
 {
     return SHT35_getData(dev).humidity;
+}
+
+void SHT35_ChangeID(SHT35 *dev, uint8_t old_id, uint8_t new_id)
+{
+    uint8_t cmd[8];
+    
+    // Frame structure: [Slave_ID][Function_Code][Reg_Addr_H][Reg_Addr_L][Value_H][Value_L][CRC_L][CRC_H]
+    cmd[0] = old_id;         // Current slave ID
+    cmd[1] = 0x06;           // Modbus Function Code 06: Write Single Register
+    cmd[2] = 0x01;           // Register address (High byte) - typically 0x0101
+    cmd[3] = 0x01;           // Register address (Low byte)
+    cmd[4] = 0x00;           // Value (High byte)
+    cmd[5] = new_id;         // Value (Low byte) - new ID to write
+    
+    // Calculate and append CRC-16
+    uint16_t crc = checkModbusCRC(cmd, 6);
+    cmd[6] = crc & 0xFF;     // CRC Low byte
+    cmd[7] = crc >> 8;       // CRC High byte
+    
+    // Clear buffer and send command
+    uart_flush_input(dev->uart);
+    uart_write_bytes(dev->uart, cmd, 8);
+    uart_wait_tx_done(dev->uart, pdMS_TO_TICKS(100));
+    
+    // Note: Sensor will typically echo the response and restart.
+    // Allow time for device to reinitialize (1-2 seconds)
 }

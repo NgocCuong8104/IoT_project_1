@@ -12,7 +12,6 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "nvs.h"
-// #include "freertos/queue.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <stdio.h>
