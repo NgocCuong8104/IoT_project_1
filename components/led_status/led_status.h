@@ -9,4 +9,6 @@ void led_status_on(void);
 void led_status_off(void);
 void led_status_blink(int count, int on_ms, int off_ms);
 
+void led_status_start_continuous_blink(int on_ms, int off_ms);
+void led_status_stop_continuous_blink(void);
 #endif

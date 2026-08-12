@@ -14,6 +14,7 @@
 #include <sys/time.h>
 #include <esp_ota_ops.h>
 #include "input.h"
+#include "esp_crt_bundle.h"
 
 static const char *TAG = "MQTT_COMPONENT";
 
@@ -25,7 +26,7 @@ extern float current_temp;
 extern float current_hum;
 extern uint8_t sensor_valid;
 
-#define MAX_RELAYS 5
+// #define MAX_RELAYS 5
 #define DEVICE_MODEL "ESP32_v1"
 
 static long get_timestamp(void) {
@@ -41,7 +42,7 @@ static void publish_device_capabilities(esp_mqtt_client_handle_t mqtt_client) {
 
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "model", DEVICE_MODEL);
-    cJSON_AddNumberToObject(root, "relay", MAX_RELAYS);
+    cJSON_AddNumberToObject(root, "relay", NUM_RELAYS);
     cJSON_AddStringToObject(root, "firmware_version", platform_get_version());
 
     char *payload = cJSON_PrintUnformatted(root);
@@ -96,7 +97,7 @@ void mqtt_send_status(void) {
     cJSON_AddNumberToObject(root, "status", 1); // 1 = online, 0 = offline
 
     cJSON *relays_arr = cJSON_CreateArray();
-    for (int i = 1; i <= MAX_RELAYS; i++) {
+    for (int i = 1; i <= NUM_RELAYS; i++) {
         cJSON_AddItemToArray(relays_arr, cJSON_CreateNumber(relay_get_status(i)));
     }
     cJSON_AddItemToObject(root, "relays", relays_arr);
@@ -247,8 +248,8 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
                 if (cJSON_IsNumber(relay_item) && cJSON_IsNumber(val_item)) {
                     int relay_idx = relay_item->valueint; 
                     int val = val_item->valueint;
-                    if (relay_idx > 0 && relay_idx <= MAX_RELAYS) {
-                        relay_set(relay_idx, val);
+                    if (relay_idx > 0 && relay_idx <= NUM_RELAYS) {
+                        relay_set(relay_idx, val, true);
                         mqtt_send_state(relay_idx, val);
                     }
                 }
@@ -302,12 +303,10 @@ void mqtt_init(void)
     snprintf(lwm_payload, sizeof(lwm_payload), "{\"device_id\":\"%s\",\"status\":0}", unique_id);
     
     esp_mqtt_client_config_t mqtt_cfg = {
-        // .broker.address.hostname = "192.168.1.251",
-        // .broker.address.port = 1883,
-        // .broker.address.transport = MQTT_TRANSPORT_OVER_TCP,
-        .broker.address.uri = "mqtt://136.110.45.16:1883",
+        .broker.address.uri = "wss://iot.croptex.io:443/mqtt",
         .session.protocol_ver = MQTT_PROTOCOL_V_3_1_1,
         .network.disable_auto_reconnect = false,
+        .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
         // .credentials.username = "acceleration",
         // .credentials.authentication.password = "2O2bkHOEMVm37hHNvqe7",
         

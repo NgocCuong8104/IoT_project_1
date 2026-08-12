@@ -26,7 +26,7 @@
 // extern QueueHandle_t relay_queue;
 
 void relay_init(void);
-void relay_set(int index, int state);
+void relay_set(int index, int state, bool save_to_flash);
 void relay_on(int index);   
 void relay_off(int index); 
 void relay_toggle(int index); 

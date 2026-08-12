@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <time.h>
 #include "esp_err.h"
+#include "driver/i2c_master.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -47,6 +48,8 @@ float ds3231_read_temperature(void);
 int ds3231_is_init(void);
 
 void ds3231_deinit(void);
+
+i2c_master_bus_handle_t get_i2c_bus_handle(void);
 
 esp_err_t ds3231_test_connection(void);
 

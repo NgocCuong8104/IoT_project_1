@@ -1345,7 +1345,7 @@
             "managed_reqs": [],
             "managed_priv_reqs": [],
             "file": "D:/Espressif/frameworks/IoT_V1/build/esp-idf/mqtt/libmqtt.a",
-            "sources": [ "D:/Espressif/frameworks/esp-idf-v5.3.1/components/mqtt/esp-mqtt/mqtt_client.c", "D:/Espressif/frameworks/esp-idf-v5.3.1/components/mqtt/esp-mqtt/lib/mqtt_msg.c", "D:/Espressif/frameworks/esp-idf-v5.3.1/components/mqtt/esp-mqtt/lib/mqtt_outbox.c", "D:/Espressif/frameworks/esp-idf-v5.3.1/components/mqtt/esp-mqtt/lib/platform_esp32_idf.c" ],
+            "sources": [ "D:/Espressif/frameworks/esp-idf-v5.3.1/components/mqtt/esp-mqtt/mqtt_client.c", "D:/Espressif/frameworks/esp-idf-v5.3.1/components/mqtt/esp-mqtt/lib/mqtt_msg.c", "D:/Espressif/frameworks/esp-idf-v5.3.1/components/mqtt/esp-mqtt/lib/mqtt_outbox.c", "D:/Espressif/frameworks/esp-idf-v5.3.1/components/mqtt/esp-mqtt/lib/platform_esp32_idf.c", "D:/Espressif/frameworks/esp-idf-v5.3.1/components/mqtt/esp-mqtt/lib/mqtt5_msg.c", "D:/Espressif/frameworks/esp-idf-v5.3.1/components/mqtt/esp-mqtt/mqtt5_client.c" ],
             "include_dirs": [ "D:/Espressif/frameworks/esp-idf-v5.3.1/components/mqtt/esp-mqtt/include" ]
         },
         "newlib": {

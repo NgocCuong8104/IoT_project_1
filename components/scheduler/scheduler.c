@@ -18,7 +18,7 @@
 
 static const char *TAG = "SCHEDULER";
 
-RelaySchedule_t schedules[5]; // Mảng lưu trữ tối đa 5 lịch cho 5 relay (! chú ý chỗ này)
+RelaySchedule_t schedules[NUM_RELAYS]; // Mảng lưu trữ tối đa NUM_RELAYS lịch cho NUM_RELAYS relay (! chú ý chỗ này)
 sensor_config_t sensor_conf;
 input_state_t input_state;
 sensor_network_t sensor_net;
@@ -105,6 +105,15 @@ static int get_relay_val(cJSON *obj, const char *key_upper, const char *key_lowe
 
 
 static void save_schedule(void) {
+    RelaySchedule_t temp_schedules[NUM_RELAYS];  // Buffer để tránh race condition
+
+    scheduler_lock();
+    for (int i = 0; i < NUM_RELAYS; i++) {
+        schedules[i].version = CONFIG_VERSION;
+    }
+    memcpy(temp_schedules, schedules, sizeof(schedules));
+    scheduler_unlock();
+
     nvs_handle_t h;
     esp_err_t err = nvs_open("storage", NVS_READWRITE, &h);
     if (err != ESP_OK) {
@@ -112,19 +121,14 @@ static void save_schedule(void) {
         return;
     }
 
-    // đọc dữ liệu hiện tại để so sánh trước khi ghi
-    RelaySchedule_t existing_schedules[5];
+    // Đọc dữ liệu hiện tại để so sánh trước khi ghi
+    RelaySchedule_t existing_schedules[NUM_RELAYS];
     size_t len = sizeof(existing_schedules);
     esp_err_t read_err = nvs_get_blob(h, "json_sched", existing_schedules, &len);
 
-    // chỉ ghi nếu dữ liệu đã thay đổi hoặc chưa tồn tại
-    if (read_err != ESP_OK || memcmp(schedules, existing_schedules, sizeof(schedules)) != 0) {
-        // cập nhật version trước khi lưu
-        for (int i = 0; i < 5; i++) {
-            schedules[i].version = CONFIG_VERSION;
-        }
-        
-        err = nvs_set_blob(h, "json_sched", schedules, sizeof(schedules));
+    // Chỉ ghi nếu dữ liệu đã thay đổi hoặc chưa tồn tại
+    if (read_err != ESP_OK || memcmp(temp_schedules, existing_schedules, sizeof(temp_schedules)) != 0) {
+        err = nvs_set_blob(h, "json_sched", temp_schedules, sizeof(temp_schedules));
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to write schedule: %s", esp_err_to_name(err));
         } else {
@@ -139,35 +143,48 @@ static void save_schedule(void) {
 }
 
 static void load_schedule(void) {
+    RelaySchedule_t temp_schedules[NUM_RELAYS];  // Buffer để tránh race condition
+    // bool load_success = false;
+
     nvs_handle_t h;
     esp_err_t err = nvs_open("storage", NVS_READONLY, &h);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Failed to open NVS for schedule: %s", esp_err_to_name(err));
-        memset(schedules, 0, sizeof(schedules));
-        return;
-    }
-
-    size_t len = sizeof(schedules);
-    err = nvs_get_blob(h, "json_sched", schedules, &len);
-    
-    if (err == ESP_OK) {
-        for (int i = 0; i < 5; i++) {
-            if (schedules[i].version != CONFIG_VERSION) {
-                ESP_LOGW(TAG, "Schedule version mismatch, reinitializing...");
-                memset(schedules, 0, sizeof(schedules));
-                break;
-            }
-        }
-        ESP_LOGI(TAG, "Schedule loaded from NVS");
+        memset(temp_schedules, 0, sizeof(temp_schedules));
     } else {
-        ESP_LOGW(TAG, "No saved schedule in NVS, using defaults");
-        memset(schedules, 0, sizeof(schedules));
+        size_t len = sizeof(temp_schedules);
+        err = nvs_get_blob(h, "json_sched", temp_schedules, &len);
+        
+        if (err == ESP_OK) {
+            for (int i = 0; i < NUM_RELAYS; i++) {
+                if (temp_schedules[i].version != CONFIG_VERSION) {
+                    ESP_LOGW(TAG, "Schedule version mismatch, reinitializing...");
+                    memset(temp_schedules, 0, sizeof(temp_schedules));
+                    break;
+                }
+            }
+            // load_success = true;
+            ESP_LOGI(TAG, "Schedule loaded from NVS");
+        } else {
+            ESP_LOGW(TAG, "No saved schedule in NVS, using defaults");
+            memset(temp_schedules, 0, sizeof(temp_schedules));
+        }
+        nvs_close(h);
     }
-    
-    nvs_close(h);
+   
+    scheduler_lock();
+    memcpy(schedules, temp_schedules, sizeof(schedules));
+    scheduler_unlock();
 }
 
 static void save_sensor_conf(void) {
+    sensor_config_t temp_conf;  // Buffer để tránh race condition (khi nhiều luồng cùng truy cập)
+
+    scheduler_lock();
+    sensor_conf.version = CONFIG_VERSION;
+    memcpy(&temp_conf, &sensor_conf, sizeof(sensor_config_t));
+    scheduler_unlock();
+
     nvs_handle_t h;
     esp_err_t err = nvs_open("storage", NVS_READWRITE, &h);
     if (err != ESP_OK) {
@@ -179,10 +196,8 @@ static void save_sensor_conf(void) {
     size_t len = sizeof(existing_conf);
     esp_err_t read_err = nvs_get_blob(h, "sensor_blob", &existing_conf, &len);
 
-    if (read_err != ESP_OK || memcmp(&sensor_conf, &existing_conf, sizeof(sensor_config_t)) != 0) {
-        sensor_conf.version = CONFIG_VERSION;
-        
-        err = nvs_set_blob(h, "sensor_blob", &sensor_conf, sizeof(sensor_config_t));
+    if (read_err != ESP_OK || memcmp(&temp_conf, &existing_conf, sizeof(sensor_config_t)) != 0) {
+        err = nvs_set_blob(h, "sensor_blob", &temp_conf, sizeof(sensor_config_t));
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to write sensor config: %s", esp_err_to_name(err));
         } else {
@@ -197,52 +212,59 @@ static void save_sensor_conf(void) {
 }
 
 static void load_sensor_conf(void) {
+    sensor_config_t temp_conf;  // Buffer để tránh race condition
+    // bool load_success = false;
+
     nvs_handle_t h;
     esp_err_t err = nvs_open("storage", NVS_READONLY, &h);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Failed to open NVS for sensor config: %s", esp_err_to_name(err));
         // Khởi tạo cấu hình mặc định nếu không có trong NVS
-        memset(&sensor_conf, 0, sizeof(sensor_config_t));
-        sensor_conf.version = CONFIG_VERSION;
+        memset(&temp_conf, 0, sizeof(sensor_config_t));
+        temp_conf.version = CONFIG_VERSION;
         for (int i = 0; i < NUM_RELAYS; i++) {
-            sensor_conf.action1_relays[i] = -1;
-            sensor_conf.action2_relays[i] = -1;
+            temp_conf.action1_relays[i] = -1;
+            temp_conf.action2_relays[i] = -1;
         }
-        strncpy(sensor_conf.type, "temp", sizeof(sensor_conf.type) - 1);
-        sensor_conf.day_mask = 0x7F;
-        sensor_conf.temp_high = 100.0;
-        sensor_conf.temp_low = -50.0;
-        sensor_conf.hysteresis_temp = HYSTERESIS_TEMP;
-        sensor_conf.hysteresis_humi = HYSTERESIS_HUMI;
-        return;
-    }
-
-    size_t len = sizeof(sensor_config_t);
-    err = nvs_get_blob(h, "sensor_blob", &sensor_conf, &len);
-    
-    if (err == ESP_OK) {
-        if (sensor_conf.version != CONFIG_VERSION) {
-            ESP_LOGW(TAG, "Sensor config version mismatch, resetting...");
-            memset(&sensor_conf, 0, sizeof(sensor_config_t));
-            sensor_conf.version = CONFIG_VERSION;
-        }
-        ESP_LOGI(TAG, "Sensor Config loaded from NVS");
+        strncpy(temp_conf.type, "temp", sizeof(temp_conf.type) - 1);
+        temp_conf.day_mask = 0x7F;
+        temp_conf.temp_high = 100.0;
+        temp_conf.temp_low = -50.0;
+        temp_conf.hysteresis_temp = HYSTERESIS_TEMP;
+        temp_conf.hysteresis_humi = HYSTERESIS_HUMI;
     } else {
-        ESP_LOGW(TAG, "No sensor config in NVS. Init default");
-        memset(&sensor_conf, 0, sizeof(sensor_config_t));
-        sensor_conf.version = CONFIG_VERSION;
+        size_t len = sizeof(sensor_config_t);
+        err = nvs_get_blob(h, "sensor_blob", &temp_conf, &len);
+    
+        if (err == ESP_OK) {
+            if (temp_conf.version != CONFIG_VERSION) {
+                ESP_LOGW(TAG, "Sensor config version mismatch, resetting...");
+                memset(&temp_conf, 0, sizeof(sensor_config_t));
+                temp_conf.version = CONFIG_VERSION;
+            }
+            // load_success = true;
+            ESP_LOGI(TAG, "Sensor Config loaded from NVS");
+        } else {
+            ESP_LOGW(TAG, "No sensor config in NVS. Init default");
+            memset(&temp_conf, 0, sizeof(sensor_config_t));
+            temp_conf.version = CONFIG_VERSION;
+        }
+        
+        // Chuyển giá trị 0xFF thành -1 để dễ xử lý trong code (nếu có)
+        for (int i = 0; i < NUM_RELAYS; i++) {
+            if (temp_conf.action1_relays[i] == 0xFF) temp_conf.action1_relays[i] = -1;
+            if (temp_conf.action2_relays[i] == 0xFF) temp_conf.action2_relays[i] = -1;
+        }
+        
+        if (temp_conf.hysteresis_temp == 0) temp_conf.hysteresis_temp = HYSTERESIS_TEMP;
+        if (temp_conf.hysteresis_humi == 0) temp_conf.hysteresis_humi = HYSTERESIS_HUMI;
+        
+        nvs_close(h);
     }
     
-    // Chuyển giá trị 0xFF thành -1 để dễ xử lý trong code (nếu có)
-    for (int i = 0; i < NUM_RELAYS; i++) {
-        if (sensor_conf.action1_relays[i] == 0xFF) sensor_conf.action1_relays[i] = -1;
-        if (sensor_conf.action2_relays[i] == 0xFF) sensor_conf.action2_relays[i] = -1;
-    }
-    
-    if (sensor_conf.hysteresis_temp == 0) sensor_conf.hysteresis_temp = HYSTERESIS_TEMP;
-    if (sensor_conf.hysteresis_humi == 0) sensor_conf.hysteresis_humi = HYSTERESIS_HUMI;
-    
-    nvs_close(h);
+    scheduler_lock();
+    memcpy(&sensor_conf, &temp_conf, sizeof(sensor_config_t));
+    scheduler_unlock();
 }
 
 void scheduler_update_from_json(const char *json_str) {
@@ -254,7 +276,7 @@ void scheduler_update_from_json(const char *json_str) {
     
     scheduler_lock();
     
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < NUM_RELAYS; i++) {
         char key[10];
         snprintf(key, sizeof(key), "relay%d", i + 1); 
         
@@ -278,7 +300,7 @@ void scheduler_update_from_json(const char *json_str) {
                             schedules[i].day_mask |= (1 << d); 
                         }
                     }
-                    vTaskDelay(pdMS_TO_TICKS(1));
+                    // vTaskDelay(pdMS_TO_TICKS(1));
                 }
             }
 
@@ -311,10 +333,10 @@ void scheduler_update_from_json(const char *json_str) {
                         if (schedules[i].slots[k].stop.h > 23) schedules[i].slots[k].stop.h = 23;
                         if (schedules[i].slots[k].stop.m > 59) schedules[i].slots[k].stop.m = 59;
                     }
-                    vTaskDelay(pdMS_TO_TICKS(1));
+                    // vTaskDelay(pdMS_TO_TICKS(1));
                 }
             }
-            vTaskDelay(pdMS_TO_TICKS(1));
+            // vTaskDelay(pdMS_TO_TICKS(1));
         } 
         else if (relay_obj && cJSON_IsNull(relay_obj)) {
             ESP_LOGW(TAG, "Clearing Schedule for %s", key);
@@ -454,11 +476,11 @@ void scheduler_update_from_json(const char *json_str) {
                         input_cfg->slots[k].stop.h = get_int_from_json(stop, "h", 0);
                         input_cfg->slots[k].stop.m = get_int_from_json(stop, "m", 0);
                     }
-                    vTaskDelay(pdMS_TO_TICKS(1));
+                    // vTaskDelay(pdMS_TO_TICKS(1));
                 }
             }
             
-            // Đọc constraint (điều kiện relay)
+            // Đọc constraint(ràng buộc) (điều kiện relay)
             cJSON *constraint_obj = cJSON_GetObjectItem(input_obj, "constraint");
             if (constraint_obj) {
                 for (int i = 0; i < NUM_RELAYS; i++) {
@@ -508,7 +530,7 @@ void scheduler_update_from_json(const char *json_str) {
                 } else {
                     break;  // Không có threshold này
                 }
-                vTaskDelay(pdMS_TO_TICKS(1));
+                // vTaskDelay(pdMS_TO_TICKS(1));
             }
             
             ESP_LOGI(TAG, "Input %d Config: dayMask=0x%02x, numActions=%d", 
@@ -517,7 +539,7 @@ void scheduler_update_from_json(const char *json_str) {
     }
     
     input_state.version = CONFIG_VERSION;
-    need_save_input_state = true;  // ✅ Đánh dấu cần save
+    need_save_input_state = true;  // đánh dấu cần save
 
     // hàm auto_id : nếu JSON có trường "auto_id" thì sẽ thực hiện lệnh đổi ID cảm biến
     cJSON *auto_id_obj = cJSON_GetObjectItem(root, "auto_id");
@@ -539,7 +561,7 @@ void scheduler_update_from_json(const char *json_str) {
         }
     }
 
-    // --- 2. LỆNH SENSOR LIST: CẬP NHẬT TỪ APP ---
+    // hàm cập nhập cảm biến: nếu có trường "sensor_list" và "addresses" 
     cJSON *sensor_list_obj = cJSON_GetObjectItem(root, "sensor_list");
     if (sensor_list_obj) {
         cJSON *addresses = cJSON_GetObjectItem(sensor_list_obj, "addresses");
@@ -562,7 +584,7 @@ void scheduler_update_from_json(const char *json_str) {
 
     need_save_schedule = true;  // Đánh dấu cần save
     
-    scheduler_unlock();  // Unlock TRƯỚC khi làm các tác vụ nặng
+    scheduler_unlock(); 
     cJSON_Delete(root);
     
     // Delay BÊN NGOÀI critical section
@@ -591,7 +613,7 @@ void scheduler_process_sensor(float current_value) {
     time(&now);
     localtime_r(&now, &timeinfo);
 
-    // --- BƯỚC CHUẨN BỊ TỜ GIẤY NHÁP (ĐỂ TRÁNH LỖI MUTEX) ---
+    // Biến cục bộ để chuẩn bị trước khi rời khỏi vùng khóa Mutex
     bool state_changed = false;
     int target_action = 0;
     
@@ -606,9 +628,6 @@ void scheduler_process_sensor(float current_value) {
         off_relays_2[i] = -1;
     }
 
-    // =========================================================
-    // VÙNG KHÓA MUTEX (CHỈ LÀM TOÁN VÀ ĐỌC BỘ NHỚ, CỰC KỲ NHANH)
-    // =========================================================
     scheduler_lock();
 
     // 1. Kiểm tra Ngày và Giờ (Thoát sớm nếu đang ngoài lịch hẹn)
@@ -640,7 +659,7 @@ void scheduler_process_sensor(float current_value) {
         hysteresis = is_temp ? HYSTERESIS_TEMP : HYSTERESIS_HUMI;
     }
 
-    // 3. MÁY TRẠNG THÁI: LOGIC DEADBAND VÀ HYSTERESIS
+    // trạng thái : 0 = Vùng an toàn, 1 = Vượt ngưỡng CAO, 2 = Dưới ngưỡng THẤP
     target_action = last_sensor_action; // Giữ nguyên trạng thái cũ làm mốc
 
     if (current_value >= high) {
@@ -650,27 +669,24 @@ void scheduler_process_sensor(float current_value) {
         target_action = 2; // Dưới ngưỡng THẤP -> Bật Action 2
     } 
     else {
-        // NHIỆT ĐỘ/ĐỘ ẨM ĐANG Ở VÙNG AN TOÀN (VD: Giữa 15 và 35)
-        // Kiểm tra Hysteresis để xem đã được phép Tắt chưa
-        
         if (last_sensor_action == 1 && current_value < (high - hysteresis)) {
             ESP_LOGI(TAG, "[HYSTERESIS] Turning OFF from action1 (%.2f < %.2f)", 
                      current_value, high - hysteresis);
-            target_action = 0; // Đã mát/khô đủ sâu -> Cho về 0 (Tắt)
+            target_action = 0; // done -> Cho về 0 (Tắt)
         } 
         else if (last_sensor_action == 2 && current_value > (low + hysteresis)) {
             ESP_LOGI(TAG, "[HYSTERESIS] Turning OFF from action2 (%.2f > %.2f)", 
                      current_value, low + hysteresis);
-            target_action = 0; // Đã sưởi/ẩm đủ sâu -> Cho về 0 (Tắt)
+            target_action = 0; // done -> Cho về 0 (Tắt)
         }
     }
 
-    // 4. CHUẨN BỊ HÀNH TRANG TRƯỚC KHI RỜI KHỎI MUTEX
+    // nếu trạng thái mới khác với trạng thái cũ, thì mới thực hiện thay đổi và ghi đè trạng thái mới
     if (target_action != last_sensor_action) {
         state_changed = true;
         last_sensor_action = target_action; // Ghi đè trạng thái mới
         
-        // Copy cấu hình Rơ-le ra "giấy nháp"
+        // Copy cấu hình Rơ-le ra mảng cục bộ
         if (target_action == 1) {
             memcpy(exec_relays, sensor_conf.action1_relays, sizeof(exec_relays));
             ESP_LOGI(TAG, "[SENSOR] Action1 TRIGGERED (Value: %.2f >= High: %.2f)", current_value, high);
@@ -680,7 +696,7 @@ void scheduler_process_sensor(float current_value) {
             ESP_LOGI(TAG, "[SENSOR] Action2 TRIGGERED (Value: %.2f <= Low: %.2f)", current_value, low);
         } 
         else if (target_action == 0) {
-            // Nếu sắp TẮT, phải cầm cấu hình của cả 2 action ra ngoài để rà soát
+            // ở vùng an toàn, kiểm tra xem trước đó là action1 hay action2 để biết cần khôi phục rơ-le nào
             memcpy(off_relays_1, sensor_conf.action1_relays, sizeof(off_relays_1));
             memcpy(off_relays_2, sensor_conf.action2_relays, sizeof(off_relays_2));
             ESP_LOGI(TAG, "[SENSOR] SAFE ZONE - Restoring system (Value: %.2f)", current_value);
@@ -692,18 +708,18 @@ void scheduler_process_sensor(float current_value) {
 
     if (state_changed) {
         
-        // KỊCH BẢN 1: BẬT MÁY (VƯỢT NGƯỠNG)
+        // 1 : Vượt ngưỡng CAO -> Thực hiện Action 1, 2: Dưới ngưỡng THẤP -> Thực hiện Action 2
         if (target_action == 1 || target_action == 2) {
             for (int i = 0; i < NUM_RELAYS; i++) {
                 if (exec_relays[i] != -1) { // Chỉ quan tâm các rơ-le được cấu hình 1 hoặc 0
-                    relay_set(i + 1, exec_relays[i]);
-                    mqtt_send_state(i + 1, exec_relays[i]);
+                    relay_set(i + 1, exec_relays[i], false); // false = không ghi log ở đây, để tránh spam log
+                    if (mqtt_is_connected()) mqtt_send_state(i + 1, exec_relays[i]);
                     ESP_LOGI(TAG, "[ACTION%d] Relay%d -> %d", target_action, i + 1, exec_relays[i]);
                 }
             }
         } 
         
-        // KỊCH BẢN 2: TẮT MÁY (VỀ VÙNG AN TOÀN)
+        // 2 : Trở về vùng an toàn -> Kiểm tra xem rơ-le nào cần khôi phục trạng thái (dựa trên action1/action2 trước đó)
         else if (target_action == 0) {
             for (int i = 0; i < NUM_RELAYS; i++) {
                 // Rà soát: Rơ-le này có từng bị quản lý bởi Cảm biến không?
@@ -712,8 +728,8 @@ void scheduler_process_sensor(float current_value) {
                     // Nếu nó đang BẬT (Khác 0), thì mới gửi lệnh TẮT (0) để tránh spam MQTT
                     if (relay_get_status(i + 1) != 0) {
                         int old_status = relay_get_status(i + 1);
-                        relay_set(i + 1, 0);
-                        mqtt_send_state(i + 1, 0);
+                        relay_set(i + 1, 0, false); // false = không ghi log ở đây, để tránh spam log
+                        if (mqtt_is_connected()) mqtt_send_state(i + 1, 0);
                         ESP_LOGI(TAG, "[SAFE_ZONE] Relay%d -> OFF (was: %d)", i + 1, old_status);
                     }
                 }
@@ -796,11 +812,15 @@ void scheduler_check_at_boot(void) {
     int current_wday_bit = (1 << timeinfo.tm_wday); 
     ESP_LOGW(TAG, "Checking missed schedules (Power Recovery)...");
 
+    int exec_relays[NUM_RELAYS];
+    for (int i = 0; i < NUM_RELAYS; i++) {
+        exec_relays[i] = -1;
+    }
+
     scheduler_lock();
     
     for (int i = 0; i < NUM_RELAYS; i++) {
-        bool should_be_on = false;
-
+        // bool should_be_on = false;
         if ((schedules[i].day_mask & current_wday_bit) == 0) continue;
         for (int k = 0; k < MAX_SLOTS; k++) {
             if (!schedules[i].slots[k].active) continue;
@@ -809,24 +829,32 @@ void scheduler_check_at_boot(void) {
             int stop_total  = schedules[i].slots[k].stop.h * 60 +  schedules[i].slots[k].stop.m;
 
             if (start_total < stop_total) { 
-                if (current_min_total >= start_total && current_min_total < stop_total) should_be_on = true;
+                if (current_min_total >= start_total && current_min_total < stop_total) exec_relays[i] = 1; // ON
             } else { 
-                if (current_min_total >= start_total || current_min_total < stop_total) should_be_on = true;
+                if (current_min_total >= start_total || current_min_total < stop_total) exec_relays[i] = 1; // ON
             }
         }
 
-        if (should_be_on) {
-            ESP_LOGW(TAG, "Restoring Relay %d -> ON", i+1);
-            relay_on(i+1);
-            mqtt_send_state(i+1, 1);
-        }
+        // if (exec_relays[i] == 1) {
+        //     ESP_LOGW(TAG, "Restoring Relay %d -> ON", i+1);
+        //     relay_on(i+1);
+        //     if (mqtt_is_connected()) mqtt_send_state(i+1, 1);
+        // }
     }
     scheduler_unlock();
+
+    for (int i = 0; i < NUM_RELAYS; i++) {
+        if (exec_relays[i] == 1) {
+            ESP_LOGW(TAG, "Restoring Relay %d -> ON", i + 1);
+            relay_on(i + 1);
+            if (mqtt_is_connected()) mqtt_send_state(i + 1, 1);
+        }
+    }
 }
 
 // Lưu input state vào NVS
 static void save_input_state(void) {
-    intput_State_t temp_state;
+    input_state_t temp_state;  // FIX: Đúng tên kiểu dữ liệu
 
     scheduler_lock();
     input_state.version = CONFIG_VERSION;
@@ -840,9 +868,7 @@ static void save_input_state(void) {
         return;
     }
 
-    // input_state.version = CONFIG_VERSION;
-    
-    err = nvs_set_blob(h, "input_state", &input_state, sizeof(input_state_t));
+    err = nvs_set_blob(h, "input_state", &temp_state, sizeof(input_state_t));
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to write input state: %s", esp_err_to_name(err));
     } else {
@@ -963,7 +989,6 @@ void scheduler_process_input(int input_idx, int new_state) {
             }
         }
     } else {
-        // Nếu không có schedule, luôn hoạt động (24/7)
         in_schedule = true;
     }
 
@@ -996,7 +1021,7 @@ void scheduler_process_input(int input_idx, int new_state) {
         return;
     }
 
-    // --- LỌC ACTION VÀ LƯU RA GIẤY NHÁP ---
+    // lọc ra action phù hợp với threshold_value == new_state
     for (int i = 0; i < input_cfg->num_actions; i++) {
         InputAction_t *action = &input_cfg->actions[i];
         
@@ -1015,17 +1040,15 @@ void scheduler_process_input(int input_idx, int new_state) {
         ESP_LOGD(TAG, "[INPUT%d] No matching threshold action", input_idx);
     }
 
-    // --- MỞ KHÓA MUTEX NGAY LẬP TỨC ---
     scheduler_unlock();
 
-    // --- ĐIỀU KHIỂN PHẦN CỨNG & MQTT BÊN NGOÀI MUTEX ---
     if (execute_action) {
         for (int j = 0; j < NUM_RELAYS; j++) {
             if (exec_relays[j] != -1) {
                 ESP_LOGI(TAG, "[INPUT%d] Relay%d -> %d", input_idx, j + 1, exec_relays[j]);
-                relay_set(j + 1, exec_relays[j]);
+                relay_set(j + 1, exec_relays[j], false); // false = không ghi log ở đây, để tránh spam log
                 
-                // Gửi trạng thái MQTT an toàn không lo kẹt hệ thống
+                // Chỉ gửi MQTT nếu có thay đổi trạng thái để tránh spam
                 if (mqtt_is_connected()) {
                     mqtt_send_state(j + 1, exec_relays[j]);
                 }
@@ -1051,7 +1074,7 @@ void scheduler_task(void *arg) {
     
     if (status == PLATFORM_TIME_COLD_BOOT_OK || status == PLATFORM_TIME_COLD_BOOT_FALLBACK) {
         ESP_LOGI(TAG, "Time valid from Phase 1 (Status: %d), proceeding without NTP", status);
-        set_time_from_rtc = 1;
+        set_time_from_rtc = 1; // Đánh dấu đã lấy thời gian từ RTC, không cần chờ NTP nữa
     }
     else if (status == PLATFORM_TIME_COLD_BOOT_FAIL) {
         ESP_LOGW(TAG, "Time invalid from Phase 1 (epoch), waiting for NTP sync...");
@@ -1078,7 +1101,7 @@ void scheduler_task(void *arg) {
              timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
              timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
 
-    scheduler_check_at_boot();
+    // scheduler_check_at_boot();
 
     // task chính để kiểm tra lịch trình mỗi phút và thực hiện các hành động tương ứng
     while (1) {
@@ -1096,9 +1119,15 @@ void scheduler_task(void *arg) {
                      timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
                      timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec, timeinfo.tm_wday);
             
+            // biến cục bộ để lưu lệnh cần thực hiện, tránh chạy trực tiếp trong mutex
+            int exec_relays[NUM_RELAYS];
+            for (int i = 0; i < NUM_RELAYS; i++) {
+                exec_relays[i] = -1; // -1: Bỏ qua
+            }
+            
             scheduler_lock();
             
-            for (int i = 0; i < 5; i++) {
+            for (int i = 0; i < NUM_RELAYS; i++) {
                 if ((schedules[i].day_mask & current_wday_bit) == 0) continue;
 
                 for (int k = 0; k < MAX_SLOTS; k++) {
@@ -1107,34 +1136,47 @@ void scheduler_task(void *arg) {
                     TimePoint_t *start = &schedules[i].slots[k].start;
                     TimePoint_t *stop  = &schedules[i].slots[k].stop;
 
-                    // kiểm tra thời gian bắt đầu
+                    // Lưu lệnh ra biến thay vì chạy trực tiếp
                     if (start->h == timeinfo.tm_hour && start->m == timeinfo.tm_min) {
-                        ESP_LOGW(TAG, "Relay %d: START time reached (%02d:%02d)", 
-                                 i + 1, start->h, start->m);
-                        relay_on(i + 1);
-                        mqtt_send_state(i + 1, 1);
+                        exec_relays[i] = 1; // Lệnh bật
                     }
-                    // kiểm tra thời gian dừng
                     else if (stop->h == timeinfo.tm_hour && stop->m == timeinfo.tm_min) {
-                        ESP_LOGW(TAG, "Relay %d: STOP time reached (%02d:%02d)", 
-                                 i + 1, stop->h, stop->m);
-                        relay_off(i + 1);
-                        mqtt_send_state(i + 1, 0);
+                        exec_relays[i] = 0; // Lệnh tắt
                     }
                 }
-                vTaskDelay(pdMS_TO_TICKS(1));
             }
             
             scheduler_unlock();
             
-            vTaskDelay(pdMS_TO_TICKS(100)); 
-        } else {
-            vTaskDelay(pdMS_TO_TICKS(100));
+            // thực hiện các lệnh ngoài mutex để tránh block hệ thống
+            for (int i = 0; i < NUM_RELAYS; i++) {
+                if (exec_relays[i] == 1) {
+                    ESP_LOGW(TAG, "Relay %d: START time reached", i + 1);
+                    relay_set(i + 1, 1, false);
+                    if (mqtt_is_connected()) mqtt_send_state(i + 1, 1);
+                } 
+                else if (exec_relays[i] == 0) {
+                    ESP_LOGW(TAG, "Relay %d: STOP time reached", i + 1);
+                    relay_set(i + 1, 0, false);
+                    if (mqtt_is_connected()) mqtt_send_state(i + 1, 0);
+                }
+            }
         }
+        
+        vTaskDelay(pdMS_TO_TICKS(100));
     }  
 }
 
 
+// hàm khởi tạo cấu trúc mạng cảm biến về mặc định nếu không có dữ liệu hợp lệ trong NVS
+static void init_default_sensor_network(sensor_network_t *net) {
+    memset(net, 0, sizeof(sensor_network_t));
+    net->version = CONFIG_VERSION;
+    net->count = 1;          // Mặc định 1 cảm biến
+    net->addresses[0] = 1;   // ID Modbus mặc định là 1
+}
+
+// hàm save: lưu cấu trúc mạng cảm biến vào NVS
 void save_sensor_network(void) {
     nvs_handle_t h;
     esp_err_t err = nvs_open("storage", NVS_READWRITE, &h);
@@ -1154,51 +1196,78 @@ void save_sensor_network(void) {
     nvs_close(h);
 }
 
+// hàm load: có kiểm tra version, bảo vệ tràn RAM, và fallback về mặc định nếu lỗi
 void load_sensor_network(void) {
+    sensor_network_t temp_net; 
+    bool load_success = false;
     nvs_handle_t h;
+
     esp_err_t err = nvs_open("storage", NVS_READONLY, &h);
-    if (err != ESP_OK) {
+    if (err == ESP_OK) {
+        size_t len = sizeof(sensor_network_t);
+        err = nvs_get_blob(h, "snsr_net", &temp_net, &len);
+        
+        if (err == ESP_OK && temp_net.version == CONFIG_VERSION) {
+            // bảo vệ chống tràn RAM nếu count bị lỗi 
+            if (temp_net.count > MAX_SUPPORTED_SENSORS) {
+                temp_net.count = MAX_SUPPORTED_SENSORS;
+                ESP_LOGW(TAG, "Corrupted NVS count, clamped to %d", MAX_SUPPORTED_SENSORS);
+            }
+            load_success = true;
+            ESP_LOGI(TAG, "Loaded sensor network: %d sensors from NVS", temp_net.count);
+        } else {
+            ESP_LOGW(TAG, "Version mismatch or blob error, resetting...");
+        }
+        nvs_close(h);
+    } else {
         ESP_LOGW(TAG, "Failed to open NVS for sensor network: %s", esp_err_to_name(err));
-        memset(&sensor_net, 0, sizeof(sensor_network_t));
-        sensor_net.version = CONFIG_VERSION;
-        sensor_net.count = 1;          // Default: 1 sensor connected
-        sensor_net.addresses[0] = 1;   // Default Modbus ID from manufacturer is 1
-        return;
     }
 
-    size_t len = sizeof(sensor_network_t);
-    err = nvs_get_blob(h, "snsr_net", &sensor_net, &len);
-    
-    if (err == ESP_OK && sensor_net.version == CONFIG_VERSION) {
-        ESP_LOGI(TAG, "Loaded sensor network: %d sensors from NVS", sensor_net.count);
-    } else {
-        ESP_LOGW(TAG, "No sensor network in NVS or version mismatch, using defaults");
-        memset(&sensor_net, 0, sizeof(sensor_network_t));
-        sensor_net.version = CONFIG_VERSION;
-        sensor_net.count = 1;
-        sensor_net.addresses[0] = 1;
+    if (!load_success) {
+        init_default_sensor_network(&temp_net);
+        ESP_LOGI(TAG, "Using default sensor network configuration");
     }
-    
-    nvs_close(h);
+
+    // Khóa Mutex đẩy dữ liệu lên Toàn cục
+    scheduler_lock();
+    memcpy(&sensor_net, &temp_net, sizeof(sensor_network_t));
+    scheduler_unlock();
 }
 
+// Hàm thêm cảm biến mới vào mạng, có kiểm tra trùng lặp và cập nhật NVS an toàn
 void add_new_sensor_to_network(uint8_t new_id) {
-    // Kiểm tra xem ID này đã có trong danh sách chưa
+    bool need_save = false;
+
+    scheduler_lock();
+    
+    // Kiểm tra trùng lặp
+    bool exists = false;
     for (int i = 0; i < sensor_net.count; i++) {
         if (sensor_net.addresses[i] == new_id) {
-            ESP_LOGW(TAG, "ID %d already exists, skipping.", new_id);
-            return; 
+            exists = true;
+            break;
         }
     }
     
-    // Thêm vào nếu còn chỗ trống
-    if (sensor_net.count < MAX_SUPPORTED_SENSORS) {
+    if (exists) {
+        ESP_LOGW(TAG, "ID %d already exists, skipping.", new_id);
+    } 
+    else if (sensor_net.count < MAX_SUPPORTED_SENSORS) {
+        // Thêm vào nếu còn chỗ
         sensor_net.addresses[sensor_net.count] = new_id;
         sensor_net.count++;
-        save_sensor_network(); // Lưu NVS
+        need_save = true;  // Bật cờ để lưu NVS sau khi nhả Mutex
         ESP_LOGI(TAG, "Added sensor ID %d. Total: %d", new_id, sensor_net.count);
-    } else {
+    } 
+    else {
         ESP_LOGE(TAG, "Network has reached maximum of %d sensors!", MAX_SUPPORTED_SENSORS);
+    }
+
+    scheduler_unlock();
+
+    // Lưu xuống Flash khi nằm ngoài vùng Mutex
+    if (need_save) {
+        save_sensor_network();
     }
 }
 

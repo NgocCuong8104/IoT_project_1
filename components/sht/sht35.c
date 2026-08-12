@@ -105,6 +105,7 @@ void SHT35_ChangeID(SHT35 *dev, uint8_t old_id, uint8_t new_id)
     uart_write_bytes(dev->uart, cmd, 8);
     uart_wait_tx_done(dev->uart, pdMS_TO_TICKS(100));
     
-    // Note: Sensor will typically echo the response and restart.
-    // Allow time for device to reinitialize (1-2 seconds)
+    uint8_t dummy_rx[16];
+    uart_read_bytes(dev->uart, dummy_rx, sizeof(dummy_rx), pdMS_TO_TICKS(100));
+    uart_flush_input(dev->uart); // Dọn sạch lần cuối
 }

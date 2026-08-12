@@ -49,19 +49,19 @@ static Button_t buttons[5] = {
 void trigger_long_press_action(int btn_index) {
     if (btn_index == 0) {
         ESP_LOGW(TAG, "Mode: WIFI");
-        led_status_blink(3, 100, 100);
+        led_status_start_continuous_blink(200, 200);
         if (buttons[btn_index].lp_cb != NULL) {
             buttons[btn_index].lp_cb(); 
         }
     } 
     else if (btn_index == 1) {
         ESP_LOGW(TAG, "Mode: 4G");
-        led_status_blink(3, 100, 100);
+        led_status_start_continuous_blink(200, 200);
         save_mode_and_restart(2);
     }
     else if (btn_index == 4) {
         ESP_LOGW(TAG, "Mode: RESET WIFI");
-        led_status_blink(3, 100, 100);
+        led_status_start_continuous_blink(200, 200);
         if (buttons[btn_index].lp_cb != NULL) {
             buttons[btn_index].lp_cb();
         }

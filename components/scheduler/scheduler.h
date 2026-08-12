@@ -7,7 +7,7 @@
 #include "freertos/semphr.h"
 
 #define MAX_SLOTS 10 // Mỗi relay có thể có tối đa 10 khung giờ bật/tắt trong ngày
-#define NUM_RELAYS 5
+#define NUM_RELAYS 5 // Số lượng relay tối đa được hỗ trợ
 #define CONFIG_VERSION 1
 #define MAX_SUPPORTED_SENSORS 10
 #define HYSTERESIS_TEMP 0.5f
@@ -95,7 +95,7 @@ void scheduler_lock(void);
 void scheduler_unlock(void);
 
 extern sensor_config_t sensor_conf;
-extern RelaySchedule_t schedules[5]; // Lịch trình cho 5 relay
+extern RelaySchedule_t schedules[NUM_RELAYS]; // Lịch trình cho NUM_RELAYS relay
 extern input_state_t input_state;
 extern sensor_network_t sensor_net;
 

@@ -155,7 +155,7 @@ void pppos_start_connect(void) {
     if (!sync_ok) {
         ESP_LOGE(TAG, "Modem not responding -> Performing Hard Reset");
         modem_reset();
-        esp_modem_sync(dce); 
+        sync_ok = (esp_modem_sync(dce) == ESP_OK);
     }
 
     if (sync_ok) {

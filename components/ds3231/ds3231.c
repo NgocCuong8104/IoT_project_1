@@ -278,3 +278,7 @@ esp_err_t ds3231_test_connection(void) {
     ESP_LOGI(TAG, "DS3231 CONNECTION SUCCESSFUL");
     return ESP_OK;
 }
+
+i2c_master_bus_handle_t get_i2c_bus_handle(void) {
+    return bus_handle;
+}
