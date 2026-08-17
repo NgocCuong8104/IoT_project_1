@@ -131,6 +131,7 @@ void pppos_start_connect(void) {
     }
 
     ESP_LOGI(TAG, "DANG KET NOI 4G (PPPoS)");
+
     app_mode = 2;
 
     if (wifi_is_connected()) {
@@ -168,6 +169,7 @@ void pppos_start_connect(void) {
         ESP_LOGE(TAG, "Modem khong phan hoi sau khi Reset!");
     }
 }
+
 void pppos_mqtt_task(void *arg) {
     // Kiểm tra mqtt_event_group trước khi sử dụng
     if (mqtt_event_group == NULL) {

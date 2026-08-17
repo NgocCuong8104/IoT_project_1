@@ -317,12 +317,15 @@ void wifi_init_sta(void) {
     bool auto_prov_started = false;
 
     if (!provisioned) {
-        if (app_mode != 0) {
-            ESP_LOGW(TAG, "BT5 reset detected: auto-starting BLE provisioning");
+        if (app_mode == 1) {
+            ESP_LOGW(TAG, "wifi_init_sta: WiFi not provisioned. Starting provisioning...");
             wifi_start_smartconfig();  
             auto_prov_started = true;
-        } else {
-            ESP_LOGW(TAG, "WiFi not provisioned. Hold BT1 for 4s to enter provisioning mode");
+        } else if (app_mode == 0) {
+            ESP_LOGW(TAG, "mode is 0, WiFi not provisioned");
+        }
+        else {
+            ESP_LOGW(TAG, "mode is 2, WiFi not provisioned", app_mode);
         }
     } else {
         wifi_config_t wifi_cfg;
@@ -330,10 +333,10 @@ void wifi_init_sta(void) {
             debug_print_wifi_credentials(&wifi_cfg.sta, "[SAVED]");
         }
         
-        ESP_LOGI(TAG, "WiFi provisioning manager kept active (BT5 reset ready)");
+        ESP_LOGI(TAG, "WiFi already provisioned. Connecting to saved network...");
     }
     
-    if (!auto_prov_started) {
+    if (!auto_prov_started && !is_wifi_connected && app_mode != 2) {
         ESP_ERROR_CHECK(esp_wifi_start());
     }
 }

@@ -67,12 +67,13 @@ void save_mode_and_restart(int32_t mode) {
         nvs_close(my_handle);
         
         ESP_LOGW(TAG, "Saved mode %ld. the system will restart...", mode);
-        vTaskDelay(pdMS_TO_TICKS(1000)); 
+        vTaskDelay(pdMS_TO_TICKS(3000)); 
         esp_restart(); 
     } else {
         ESP_LOGE(TAG, "Failed to save mode to NVS: %s", esp_err_to_name(err));
     }
 }
+
 int32_t load_last_mode(void) {
     nvs_handle_t my_handle;
     int32_t saved_mode = 0;
